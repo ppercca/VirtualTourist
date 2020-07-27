@@ -47,21 +47,27 @@ class FlickrClient {
         print(url.absoluteString)
         taskForGETRequest(url: url, responseType: FlickrPhotosResponse.self) { (response, error) in
             if let response = response {
-                completion(response, nil)
+                DispatchQueue.main.async {
+                    completion(response, nil)
+                }
             } else {
-                completion(nil, error)
+                DispatchQueue.main.async {
+                    completion(nil, error)
+                }
             }
         }
     }
     
-    class func requestImageFile(url: URL, completionHandler: @escaping (UIImage?, Error?) -> Void) {
+    
+    
+    class func requestImageFile(url: URL, index: Int, completionHandler: @escaping (UIImage?, Error?, Int) -> Void) {
         let task = URLSession.shared.dataTask(with: url, completionHandler: { (data, response, error) in
             guard let data = data else {
-                completionHandler(nil, error)
+                completionHandler(nil, error, index)
                 return
             }
             let downloadImage = UIImage(data: data)
-            completionHandler(downloadImage, nil)
+            completionHandler(downloadImage, nil, index)
         })
         task.resume()
     }
@@ -71,22 +77,16 @@ class FlickrClient {
     @discardableResult class func taskForGETRequest<ResponseType: Decodable>(url: URL, responseType: ResponseType.Type, completion: @escaping (ResponseType?, Error?) -> Void) -> URLSessionTask {
         let task = URLSession.shared.dataTask(with: url) { data, response, error in
             guard let data = data else {
-                DispatchQueue.main.async {
-                    completion(nil, error)
-                }
+                completion(nil, error)
                 return
             }
             let decoder = JSONDecoder()
             do {
 //                print(NSString(data: data, encoding: String.Encoding.utf8.rawValue) ?? "")
-                let responseObject = try decoder.decode(responseType.self, from: data)
-                DispatchQueue.main.async {
-                    completion(responseObject, nil)
-                }
+            let responseObject = try decoder.decode(responseType.self, from: data)
+                completion(responseObject, nil)
             } catch {
-                DispatchQueue.main.async {
-                    completion(nil, error)
-                }
+                completion(nil, error)
             }
         }
         task.resume()

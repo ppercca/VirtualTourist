@@ -8,14 +8,14 @@
 
 import UIKit
 import MapKit
+import CoreData
 
 class TravelLocationsMapViewController: UIViewController {
     @IBOutlet weak var mapView: MKMapView!
     var coordinate: CLLocationCoordinate2D!
     var locations = [CLLocationCoordinate2D]()
-    
-    let distanceSpan: CLLocationDistance = 5000
-    
+    var dataController:DataController!
+    var fetchedResultsController:NSFetchedResultsController<Pin>!
     var pins:  [[Double]] = [[-2.197755516486268, -74.66919744058595]]
     
     override func viewDidLoad() {
