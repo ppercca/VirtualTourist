@@ -13,13 +13,6 @@ class FlickrClient {
     
     static let apiKey = "f7e684ab9481b394e2478f61380abcf7"
     
-    struct Constants {
-         static var accountKey = ""
-         static var firstName = ""
-         static var lastName = ""
-         static var objectId = ""
-     }
-    
     enum Endpoints {
         static let base = "https://www.flickr.com/services/rest/"
         static let apiKeyParam = "&api_key=\(FlickrClient.apiKey)"
@@ -36,11 +29,12 @@ class FlickrClient {
                 return "https://farm\(farmId).staticflickr.com/\(serverId)/\(id)_\(secret).jpg"
              }
          }
-         
          var url: URL {
              return URL(string: stringValue)!
          }
      }
+    
+    // MARK: - Photos Methods
     
     class func getPhotos(latitude: Double, longitude: Double, page: Int, completion: @escaping (FlickrPhotosResponse?, Error?) -> Void) {
         let url = Endpoints.getPhotos(latitude, longitude, page).url
@@ -57,8 +51,6 @@ class FlickrClient {
             }
         }
     }
-    
-    
     
     class func requestImageFile(url: URL, index: Int, completionHandler: @escaping (UIImage?, Error?, Int) -> Void) {
         let task = URLSession.shared.dataTask(with: url, completionHandler: { (data, response, error) in
@@ -82,7 +74,6 @@ class FlickrClient {
             }
             let decoder = JSONDecoder()
             do {
-//                print(NSString(data: data, encoding: String.Encoding.utf8.rawValue) ?? "")
             let responseObject = try decoder.decode(responseType.self, from: data)
                 completion(responseObject, nil)
             } catch {

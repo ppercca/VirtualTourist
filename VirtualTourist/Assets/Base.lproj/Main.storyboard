@@ -122,13 +122,18 @@
                                     <outlet property="delegate" destination="si8-df-OhI" id="gy0-Su-CLR"/>
                                 </connections>
                             </collectionView>
+                            <activityIndicatorView hidden="YES" opaque="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" verticalHuggingPriority="750" hidesWhenStopped="YES" style="medium" translatesAutoresizingMaskIntoConstraints="NO" id="JvG-lH-Wvm">
+                                <rect key="frame" x="197" y="581.5" width="20" height="20"/>
+                            </activityIndicatorView>
                         </subviews>
                         <color key="backgroundColor" systemColor="systemBackgroundColor" cocoaTouchSystemColor="whiteColor"/>
                         <constraints>
                             <constraint firstItem="ciW-68-fEx" firstAttribute="leading" secondItem="n8Q-ni-ERk" secondAttribute="leading" id="0IX-Ed-w2b"/>
                             <constraint firstItem="kgh-Se-D5h" firstAttribute="top" secondItem="n8Q-ni-ERk" secondAttribute="top" id="3zl-6T-6Uk"/>
+                            <constraint firstItem="JvG-lH-Wvm" firstAttribute="centerX" secondItem="ciW-68-fEx" secondAttribute="centerX" id="6TY-lP-LCc"/>
                             <constraint firstItem="ciW-68-fEx" firstAttribute="top" secondItem="kgh-Se-D5h" secondAttribute="bottom" constant="3" id="NtV-iO-Ane"/>
                             <constraint firstItem="kgh-Se-D5h" firstAttribute="trailing" secondItem="n8Q-ni-ERk" secondAttribute="trailing" id="VpC-TK-IKv"/>
+                            <constraint firstItem="JvG-lH-Wvm" firstAttribute="centerY" secondItem="ciW-68-fEx" secondAttribute="centerY" id="aJU-Iu-MzI"/>
                             <constraint firstItem="kgh-Se-D5h" firstAttribute="leading" secondItem="n8Q-ni-ERk" secondAttribute="leading" id="gKj-vv-jay"/>
                             <constraint firstAttribute="trailing" secondItem="ciW-68-fEx" secondAttribute="trailing" id="iZP-no-cfi"/>
                             <constraint firstItem="ciW-68-fEx" firstAttribute="bottom" secondItem="n8Q-ni-ERk" secondAttribute="bottom" id="vzD-Bh-cZn"/>
@@ -137,6 +142,7 @@
                     </view>
                     <navigationItem key="navigationItem" title="Photo Album" id="FT0-zP-Mb8"/>
                     <connections>
+                        <outlet property="activityIndicator" destination="JvG-lH-Wvm" id="Mie-7c-efi"/>
                         <outlet property="collectionView" destination="ciW-68-fEx" id="nmj-VL-mpb"/>
                         <outlet property="flowLayout" destination="lvC-1E-O0a" id="Jok-25-HXB"/>
                         <outlet property="mapView" destination="kgh-Se-D5h" id="Thw-4N-GaF"/>

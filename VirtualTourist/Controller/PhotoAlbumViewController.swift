@@ -9,6 +9,7 @@
 import Foundation
 import UIKit
 import MapKit
+import CoreData
 
 enum Mode {
   case view
@@ -18,10 +19,30 @@ enum Mode {
 class PhotoAlbumViewController: UIViewController {
     @IBOutlet weak var mapView: MKMapView!
     @IBOutlet weak var collectionView: UICollectionView!
-    var coordinate: CLLocationCoordinate2D!
     @IBOutlet weak var flowLayout: UICollectionViewFlowLayout!
-    var photos = [UIImage]()
+    @IBOutlet weak var activityIndicator: UIActivityIndicatorView!
     var page: Int = 1
+    var blockOperations: [BlockOperation] = []
+    
+    var pin: Pin!
+    var dataController:DataController!
+    var fetchedResultsController:NSFetchedResultsController<Photo>!
+    
+    fileprivate func setupFetchedResultsController() {
+        let fetchRequest:NSFetchRequest<Photo> = Photo.fetchRequest()
+        let predicate = NSPredicate(format: "pin == %@", pin)
+        fetchRequest.predicate = predicate
+        let sortDescriptor = NSSortDescriptor(key: "creationDate", ascending: true)
+        fetchRequest.sortDescriptors = [sortDescriptor]
+        
+        fetchedResultsController = NSFetchedResultsController(fetchRequest: fetchRequest, managedObjectContext: dataController.viewContext, sectionNameKeyPath: nil, cacheName: "\(String(describing: pin))-photos")
+        fetchedResultsController.delegate = self
+        do {
+            try fetchedResultsController.performFetch()
+        } catch {
+            fatalError("The fetch could not be performed: \(error.localizedDescription)")
+        }
+    }
     
     var dictionarySelectedIndecPath: [IndexPath: Bool] = [:]
     var mMode: Mode = .view {
@@ -45,10 +66,15 @@ class PhotoAlbumViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        setupFetchedResultsController()
         configureMap()
         configureCollection()
         configureToolbarItems(mode: .view)
-        loadPhotos(page: page)
+        if let fetchedObjects = fetchedResultsController.fetchedObjects {
+            if fetchedObjects.count == 0 {
+                loadPhotos(page: page)
+            }
+        }
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -56,7 +82,10 @@ class PhotoAlbumViewController: UIViewController {
         navigationController?.setToolbarHidden(true, animated: false)
     }
     
+    // MARK: - Configuration Methods
+    
     func configureMap() {
+        let coordinate = CLLocationCoordinate2D(latitude: pin.latitude, longitude: pin.longitude)
         let annotation = MKPointAnnotation()
         annotation.coordinate = coordinate
         mapView.addAnnotation(annotation)
@@ -78,8 +107,10 @@ class PhotoAlbumViewController: UIViewController {
         case .view:
             let select = UIBarButtonItem(title: "Select", style: .plain, target: self, action: #selector(selectTapped(sender:)))
             self.toolbarItems = [space,space, newCollection, space, select]
-            if photos.count == 0 {
-                newCollection.isEnabled = false
+            if let fetchedObjects = fetchedResultsController.fetchedObjects {
+                if fetchedObjects.count == 0 {
+                    newCollection.isEnabled = false
+                }
             }
         case .select:
             let select = UIBarButtonItem(title: "Cancel", style: .plain, target: self, action: #selector(selectTapped(sender:)))
@@ -96,16 +127,21 @@ class PhotoAlbumViewController: UIViewController {
             deleteNeededIndexPaths.append(key)
           }
         }
-        for i in deleteNeededIndexPaths.sorted(by: { $0.item > $1.item }) {
-          photos.remove(at: i.item)
+        for indexPath in deleteNeededIndexPaths.sorted(by: { $0.item > $1.item }) {
+            let photoToDelete = fetchedResultsController.object(at: indexPath)
+            dataController.viewContext.delete(photoToDelete)
+            try? dataController.viewContext.save()
         }
-        collectionView.deleteItems(at: deleteNeededIndexPaths)
         dictionarySelectedIndecPath.removeAll()
     }
     
     @objc func newCollectionTapped(sender: Any) {
-        photos = [UIImage]()
-        collectionView.reloadData()
+        if let fetchedObjects = fetchedResultsController.fetchedObjects {
+            for fetchedObject in fetchedObjects {
+                dataController.viewContext.delete(fetchedObject)
+            }
+            try? dataController.viewContext.save()
+        }
         page += 1
         loadPhotos(page: page)
     }
@@ -114,22 +150,36 @@ class PhotoAlbumViewController: UIViewController {
         mMode = mMode == .view ? .select : .view
     }
     
-    func loadPhotos(page: Int) {
-        FlickrClient.getPhotos(latitude: coordinate.latitude, longitude: coordinate.longitude, page: page, completion: handlePhotosResponse(photosResponse:error:))
+    func loading(_ value: Bool) {
+        if value {
+            activityIndicator.startAnimating()
+            self.collectionView.alpha = 0.8
+        } else {
+            self.collectionView.alpha = 1
+            activityIndicator.stopAnimating()
+        }
     }
     
-    func handlePhotosResponse(photosResponse: FlickrPhotosResponse?,error: Error?) { //
+    // MARK: - Photos Methods
+    
+    func loadPhotos(page: Int) {
+        loading(true)
+        FlickrClient.getPhotos(latitude: pin.latitude, longitude: pin.longitude, page: page, completion: handlePhotosResponse(photosResponse:error:))
+    }
+    
+    func handlePhotosResponse(photosResponse: FlickrPhotosResponse?,error: Error?) {
+        loading(false)
         guard let photosResponse = photosResponse else { return }
-        
         if photosResponse.photos.photo.count == 0 {
             self.showFailureMessage(message: "No images were found ", title: "No Images")
         } else {
             for _ in photosResponse.photos.photo {
-                self.photos.append(UIImage.init(imageLiteralResourceName: "PlaceholderImage"))
+                let photo = Photo(context: dataController.viewContext)
+                photo.pin = pin
+                photo.image = UIImage.init(imageLiteralResourceName: "PlaceholderImage").jpegData(compressionQuality: 1.0)
+                photo.creationDate = Date()
+                try? dataController.viewContext.save()
             }
-        }
-        DispatchQueue.main.async {
-            self.collectionView.reloadData()
         }
         DispatchQueue.global(qos: .background).async { () -> Void in
             self.loadPhotoImages(photos: photosResponse.photos.photo)
@@ -147,12 +197,16 @@ class PhotoAlbumViewController: UIViewController {
 
     func handlePhotosImagesResponse(image: UIImage? , error: Error?, index: Int) {
         if let image = image {
-            photos[index] = image
-            DispatchQueue.main.async {
-                self.collectionView.reloadData()
-                if (self.photos.count - 1) == index {
-                    print(self.toolbarItems?.count ?? "Holi")
-                    self.toolbarItems?[2].isEnabled = true
+            if let fetchedObjects = fetchedResultsController.fetchedObjects {
+                fetchedObjects[index].image = image.jpegData(compressionQuality: 1.0)
+                try? dataController.viewContext.save()
+
+                DispatchQueue.main.async {
+                    self.collectionView.reloadData()
+                    if (fetchedObjects.count - 1) == index {
+                        print(self.toolbarItems?.count ?? "Holi")
+                        self.toolbarItems?[2].isEnabled = true
+                    }
                 }
             }
         }
@@ -168,6 +222,8 @@ class PhotoAlbumViewController: UIViewController {
 
 }
 
+// MARK: - Map Method
+
 extension PhotoAlbumViewController: MKMapViewDelegate {
     func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
         let myPinIdentifier = "PinAnnotationIdentifier"
@@ -179,17 +235,22 @@ extension PhotoAlbumViewController: MKMapViewDelegate {
     }
 }
 
+// MARK: - Collection Methods
 
 extension PhotoAlbumViewController: UICollectionViewDelegate, UICollectionViewDataSource {
+    
+    func numberOfSections(in collectionView: UICollectionView) -> Int {
+        return fetchedResultsController.sections?.count ?? 1
+    }
+    
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
-        return photos.count
+        return fetchedResultsController.sections?[0].numberOfObjects ?? 0
     }
     
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        let photo = fetchedResultsController.object(at: indexPath)
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: "PhotoCollectionViewCell", for: indexPath) as! PhotoCollectionViewCell
-        if photos.count > 0 {
-            cell.imageView.image = photos[indexPath.row]
-        }
+        cell.imageView.image = UIImage(data: photo.image!)
         return cell
     }
     
@@ -197,7 +258,6 @@ extension PhotoAlbumViewController: UICollectionViewDelegate, UICollectionViewDa
       switch mMode {
       case .view:
         collectionView.deselectItem(at: indexPath, animated: true)
-        let item = photos[indexPath.item]
       case .select:
         dictionarySelectedIndecPath[indexPath] = true
       }
@@ -219,4 +279,75 @@ extension PhotoAlbumViewController: UICollectionViewDelegateFlowLayout {
         return CGSize(width: dimension, height: dimension * 0.9)
     }
 
+}
+
+// MARK: - NSFetchedResultsControllerDelegate Methods
+
+extension PhotoAlbumViewController:NSFetchedResultsControllerDelegate {
+    
+    func controller(_ controller: NSFetchedResultsController<NSFetchRequestResult>, didChange anObject: Any, at indexPath: IndexPath?, for type: NSFetchedResultsChangeType, newIndexPath: IndexPath?) {
+        switch type {
+        case .insert:
+            blockOperations.append(
+                BlockOperation(block: { [weak self] in
+                    if let this = self {
+                        this.collectionView!.insertItems(at: [newIndexPath!])
+                    }
+                })
+            )
+            break
+        case .delete:
+            blockOperations.append(
+                BlockOperation(block: { [weak self] in
+                    if let this = self {
+                        this.collectionView!.deleteItems(at: [indexPath!])
+                    }
+                })
+            )
+            break
+        case .update:
+            blockOperations.append(
+                BlockOperation(block: { [weak self] in
+                    if let this = self {
+                        this.collectionView!.reloadItems(at: [indexPath!])
+                    }
+                })
+            )
+            break
+        case .move:
+            blockOperations.append(
+                BlockOperation(block: { [weak self] in
+                    if let this = self {
+                        this.collectionView!.moveItem(at: indexPath!, to: newIndexPath!)
+                    }
+                })
+            )
+            break
+        default:
+                break
+        }
+    }
+    
+    func controller(_ controller: NSFetchedResultsController<NSFetchRequestResult>, didChange sectionInfo: NSFetchedResultsSectionInfo, atSectionIndex sectionIndex: Int, for type: NSFetchedResultsChangeType) {
+        let indexSet = IndexSet(integer: sectionIndex)
+        switch type {
+        case .insert: collectionView.insertSections(indexSet)
+        case .delete: collectionView.deleteSections(indexSet)
+        case .update, .move:
+            fatalError("Invalid change type in controller(_:didChange:atSectionIndex:for:). Only .insert or .delete should be possible.")
+        default:
+            break
+        }
+    }
+
+    func controllerDidChangeContent(_ controller: NSFetchedResultsController<NSFetchRequestResult>) {
+        collectionView.performBatchUpdates({ () -> Void in
+            for blockOperation in self.blockOperations {
+                blockOperation.start()
+            }
+            }, completion: { (finished) -> Void in
+                self.blockOperations.removeAll(keepingCapacity: false)
+        })
+    }
+    
 }

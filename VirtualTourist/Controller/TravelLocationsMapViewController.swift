@@ -10,13 +10,26 @@ import UIKit
 import MapKit
 import CoreData
 
-class TravelLocationsMapViewController: UIViewController {
+class TravelLocationsMapViewController: UIViewController, NSFetchedResultsControllerDelegate {
     @IBOutlet weak var mapView: MKMapView!
-    var coordinate: CLLocationCoordinate2D!
     var locations = [CLLocationCoordinate2D]()
+    
     var dataController:DataController!
     var fetchedResultsController:NSFetchedResultsController<Pin>!
-    var pins:  [[Double]] = [[-2.197755516486268, -74.66919744058595]]
+    
+    fileprivate func setupFetchedResultsController() {
+        let fetchRequest:NSFetchRequest<Pin> = Pin.fetchRequest()
+        let sortDescriptor = NSSortDescriptor(key: "creationDate", ascending: false)
+        fetchRequest.sortDescriptors = [sortDescriptor]
+        
+        fetchedResultsController = NSFetchedResultsController(fetchRequest: fetchRequest, managedObjectContext: dataController.viewContext, sectionNameKeyPath: nil, cacheName: nil)
+        fetchedResultsController.delegate = self
+        do {
+            try fetchedResultsController.performFetch()
+        } catch {
+            fatalError("The fetch could not be performed: \(error.localizedDescription)")
+        }
+    }
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -26,14 +39,21 @@ class TravelLocationsMapViewController: UIViewController {
         let myLongPress: UILongPressGestureRecognizer = UILongPressGestureRecognizer()
         myLongPress.addTarget(self, action: #selector(recognizeLongPress(_:)))
         mapView.addGestureRecognizer(myLongPress)
-        
+        setupFetchedResultsController()
         createPointAnnotations()
         UserDefaults.standard.set(true, forKey: "HasLaunchedBefore")
+    }
+    
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        setupFetchedResultsController()
+        createPointAnnotations()
     }
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         createPointAnnotations()
+        fetchedResultsController = nil
     }
         
     func zoomLevel() {
@@ -45,10 +65,12 @@ class TravelLocationsMapViewController: UIViewController {
     
     func createPointAnnotations() {
         mapView.removeAnnotations(mapView.annotations)
-        for pin in pins {
-            let annotation = MKPointAnnotation()
-            annotation.coordinate = CLLocationCoordinate2D(latitude: pin[0], longitude: pin[1])
-            mapView.addAnnotation(annotation)
+        if let fetchedObjects = fetchedResultsController.fetchedObjects {
+            for pin in fetchedObjects {
+                let annotation = MKPointAnnotation()
+                annotation.coordinate = CLLocationCoordinate2D(latitude: pin.latitude, longitude: pin.longitude)
+                mapView.addAnnotation(annotation)
+            }
         }
     }
     
@@ -60,18 +82,34 @@ class TravelLocationsMapViewController: UIViewController {
         annotation.coordinate = mapView.convert(sender.location(in: mapView), toCoordinateFrom: mapView)
         annotation.title = "title"
         mapView.addAnnotation(annotation)
-        pins.append([annotation.coordinate.latitude, annotation.coordinate.longitude])
-        print("Long Press was detected")
+        
+        let pin = Pin(context: dataController.viewContext)
+        pin.latitude = annotation.coordinate.latitude
+        pin.longitude = annotation.coordinate.longitude
+        pin.creationDate = Date()
+        try? dataController.viewContext.save()
+        print("Long Press was detected  \(annotation.coordinate.latitude) \(annotation.coordinate.longitude)")
     }
     
     override func prepare(for segue: UIStoryboardSegue, sender: Any?) {
         let controller = segue.destination as! PhotoAlbumViewController
-        controller.coordinate = coordinate
-        print("Prepare Coordinate  \(String(describing: controller.coordinate))")
+        let annotation = sender as! MKAnnotation
+        controller.dataController = dataController
+
+        let fetchRequest:NSFetchRequest<Pin> = Pin.fetchRequest()
+        let predicate = NSPredicate(format: "latitude == %@ AND longitude == %@", argumentArray: [annotation.coordinate.latitude, annotation.coordinate.longitude] )
+        fetchRequest.predicate = predicate
+        if let result = try? dataController.viewContext.fetch(fetchRequest) {
+            if result.count >= 0 {
+                controller.pin = result[0]
+            }
+        }
         navigationItem.backBarButtonItem = UIBarButtonItem(title: "Ok", style: .plain, target: nil, action: nil)
     }
-
+    
 }
+
+// MARK: - Map Methods
 
 extension TravelLocationsMapViewController: MKMapViewDelegate {
 
@@ -84,9 +122,7 @@ extension TravelLocationsMapViewController: MKMapViewDelegate {
              pinView = MKPinAnnotationView(annotation: annotation, reuseIdentifier: reuseId)
              pinView!.canShowCallout = true
              pinView!.pinTintColor = .red
-//             pinView!.rightCalloutAccessoryView = UIButton(type: .detailDisclosure)
-         }
-         else {
+         } else {
              pinView!.annotation = annotation
          }
         
@@ -95,9 +131,8 @@ extension TravelLocationsMapViewController: MKMapViewDelegate {
     
     
     func mapView(_ mapView: MKMapView, didSelect view:  MKAnnotationView){
-        coordinate = view.annotation?.coordinate
-        print("Coordinate  \(String(describing: coordinate))")
-        performSegue(withIdentifier: "openPhotoAlbum", sender: self)
+        print("Coordinate: \(String(describing: view.annotation?.coordinate.latitude)) , \(String(describing: view.annotation?.coordinate.longitude))")
+        performSegue(withIdentifier: "openPhotoAlbum", sender: view.annotation)
     }
     
     func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
